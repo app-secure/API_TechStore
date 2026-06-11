@@ -12,6 +12,7 @@ namespace TechStore360.Modules.Productos
     public interface IProductosRepository
     {
         Task<IReadOnlyList<ProductoDto>> GetAllAsync(CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<ProductoDto>> GetInactivosAsync(CancellationToken cancellationToken = default);
         Task<ProductoDto?> GetByIdAsync(int idProducto, CancellationToken cancellationToken = default);
         Task<ProductoDto> AddAsync(CrearProductoRequest request, CancellationToken cancellationToken = default);
         Task<ProductoDto?> UpdateAsync(int idProducto, ActualizarProductoRequest request, CancellationToken cancellationToken = default);
@@ -37,7 +38,8 @@ namespace TechStore360.Modules.Productos
                 Nombre: reader.GetString(reader.GetOrdinal("nombre")),
                 Precio: reader.GetDecimal(reader.GetOrdinal("precio")),
                 Stock: reader.GetInt32(reader.GetOrdinal("stock")),
-                UrlImagen: reader.IsDBNull(reader.GetOrdinal("url_imagen")) ? null : reader.GetString(reader.GetOrdinal("url_imagen"))
+                UrlImagen: reader.IsDBNull(reader.GetOrdinal("url_imagen")) ? null : reader.GetString(reader.GetOrdinal("url_imagen")),
+                Estado: reader.GetBoolean(reader.GetOrdinal("estado"))
             );
         }
 
@@ -47,7 +49,7 @@ namespace TechStore360.Modules.Productos
             try
             {
                 using var conn = await _dbExecutor.GetPostgresConnectionAsync();
-                const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
+                const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 var list = new List<ProductoDto>();
                 using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -67,7 +69,7 @@ namespace TechStore360.Modules.Productos
         {
             using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
             await conn.OpenAsync(cancellationToken);
-            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
+            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
             using var cmd = new NpgsqlCommand(sql, conn);
             var list = new List<ProductoDto>();
             using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -84,7 +86,7 @@ namespace TechStore360.Modules.Productos
             try
             {
                 using var conn = await _dbExecutor.GetPostgresConnectionAsync();
-                const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE id_producto = $1 AND estado = true;";
+                const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto = $1;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(idProducto);
                 using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -104,7 +106,7 @@ namespace TechStore360.Modules.Productos
         {
             using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
             await conn.OpenAsync(cancellationToken);
-            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE id_producto = $1 AND estado = true;";
+            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto = $1;";
             using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue(idProducto);
             using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -126,7 +128,7 @@ namespace TechStore360.Modules.Productos
                 const string sql = @"
                     INSERT INTO public.productos (nombre, precio, stock, url_imagen, estado)
                     VALUES ($1, $2, $3, $4, true)
-                    RETURNING id_producto, nombre, precio, stock, url_imagen;";
+                    RETURNING id_producto, nombre, precio, stock, url_imagen, estado;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(request.Nombre);
                 cmd.Parameters.AddWithValue(request.Precio);
@@ -162,8 +164,8 @@ namespace TechStore360.Modules.Productos
                 const string sql = @"
                     UPDATE public.productos 
                     SET nombre = $1, precio = $2, stock = $3, url_imagen = $4
-                    WHERE id_producto = $5 AND estado = true
-                    RETURNING id_producto, nombre, precio, stock, url_imagen;";
+                    WHERE id_producto = $5
+                    RETURNING id_producto, nombre, precio, stock, url_imagen, estado;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(nombre);
                 cmd.Parameters.AddWithValue(precio);
@@ -207,7 +209,7 @@ namespace TechStore360.Modules.Productos
             {
                 using var conn = await _dbExecutor.GetPostgresConnectionAsync();
                 var placeholders = string.Join(",", idsList.Select((_, index) => $"${index + 1}"));
-                var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE id_producto IN ({placeholders}) AND estado = true;";
+                var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto IN ({placeholders});";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 foreach (var id in idsList)
                 {
@@ -232,7 +234,7 @@ namespace TechStore360.Modules.Productos
             using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
             await conn.OpenAsync(cancellationToken);
             var placeholders = string.Join(",", idsList.Select((_, index) => $"${index + 1}"));
-            var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen FROM public.productos WHERE id_producto IN ({placeholders}) AND estado = true;";
+            var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto IN ({placeholders});";
             using var cmd = new NpgsqlCommand(sql, conn);
             foreach (var id in idsList)
             {
@@ -280,6 +282,43 @@ namespace TechStore360.Modules.Productos
                 return rowsAffected > 0;
             }
             return false;
+        }
+
+        public async Task<IReadOnlyList<ProductoDto>> GetInactivosAsync(CancellationToken cancellationToken = default)
+        {
+            var source = await _dbExecutor.GetActiveDatabaseAsync();
+            try
+            {
+                using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = false ORDER BY nombre ASC;";
+                using var cmd = new NpgsqlCommand(sql, conn);
+                var list = new List<ProductoDto>();
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    list.Add(MapReaderToDto(reader));
+                }
+                return list;
+            }
+            catch when (source == ActiveDbSource.Supabase)
+            {
+                return await GetInactivosFromFallbackAsync(cancellationToken);
+            }
+        }
+
+        private async Task<IReadOnlyList<ProductoDto>> GetInactivosFromFallbackAsync(CancellationToken cancellationToken)
+        {
+            using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+            await conn.OpenAsync(cancellationToken);
+            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = false ORDER BY nombre ASC;";
+            using var cmd = new NpgsqlCommand(sql, conn);
+            var list = new List<ProductoDto>();
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                list.Add(MapReaderToDto(reader));
+            }
+            return list;
         }
 
         private static string ParsePostgresUrl(string? url)

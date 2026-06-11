@@ -3,6 +3,7 @@ namespace TechStore360.Modules.Productos;
 public interface IProductosService
 {
     Task<IEnumerable<ProductoDto>> ObtenerCatalogoAsync(CancellationToken ct);
+    Task<IEnumerable<ProductoDto>> ObtenerInactivosAsync(CancellationToken ct);
     Task<ProductoDto?> ObtenerPorIdAsync(int id, CancellationToken ct);
     Task<ProductoDto> CrearProductoAsync(CrearProductoRequest request, CancellationToken ct);
     Task<ProductoDto?> ActualizarProductoAsync(int id, ActualizarProductoRequest request, CancellationToken ct);
@@ -59,5 +60,10 @@ public class ProductosService : IProductosService
     public async Task<bool> ReactivarProductoAsync(int id, CancellationToken ct)
     {
         return await _repository.ReactivarAsync(id, ct);
+    }
+
+    public async Task<IEnumerable<ProductoDto>> ObtenerInactivosAsync(CancellationToken ct)
+    {
+        return await _repository.GetInactivosAsync(ct);
     }
 }

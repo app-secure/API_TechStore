@@ -15,7 +15,8 @@ public record ProductoDto(
 	string Nombre,
 	decimal Precio,
 	int Stock,
-	string? UrlImagen
+	string? UrlImagen,
+	bool Estado
 );
 
 public record CrearProductoRequest(

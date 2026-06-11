@@ -23,6 +23,14 @@ namespace TechStore360.Modules.Productos
             return Ok(productos);
         }
 
+        [HttpGet("inactivos")]
+        [Authorize(Policy = "Admin")]
+        public async Task<IActionResult> ObtenerInactivos(CancellationToken ct)
+        {
+            var productos = await _service.ObtenerInactivosAsync(ct);
+            return Ok(productos);
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> ObtenerPorId(int id, CancellationToken ct)
         {
