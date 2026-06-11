@@ -167,7 +167,18 @@ app.MapGet("/api/test-db", async (ResilientDbExecutor dbExecutor, string? target
             var client = new MongoDB.Driver.MongoClient(mongoUri);
             var admin = client.GetDatabase("admin");
             await admin.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
-            return Results.Ok(new { status = "OK", database = "MongoDB", message = "Conexión a MongoDB Atlas exitosa." });
+            
+            var db = client.GetDatabase("techstore360");
+            var collections = await db.ListCollectionNames().ToListAsync();
+            var dbs = await client.ListDatabaseNames().ToListAsync();
+            
+            return Results.Ok(new { 
+                status = "OK", 
+                database = "MongoDB", 
+                message = "Conexión a MongoDB Atlas exitosa.",
+                databases = dbs,
+                techstore360_collections = collections
+            });
         }
         else
         {
