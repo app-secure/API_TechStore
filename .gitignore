@@ -1,0 +1,15 @@
+# Secrets / env
+.env
+
+# Firebase / Google service account keys (NO commitear)
+**/serviceAccount*.json
+**/firebase-adminsdk*.json
+**/*-firebase-adminsdk-*.json
+**/google-credentials*.json
+
+# Build outputs
+**/bin/
+**/obj/
+
+# Visual Studio
+.vs/

@@ -1,0 +1,264 @@
+@HostAddress = http://localhost:5020
+@FirebaseApiKey = AIzaSyBMHPGToGsUeGWIsh4VJ-AGp1X5kBTQb44
+@Token = eyJhbGciOiJSUzI1NiIsImtpZCI6Ijc5OTRiNGYzMTU2MzJiMjk3NzAwNmQ5M2U5NGIyYWNiZTMwNWZlNDYiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vcHJveWVjdG8tZGlzdHJpYnVpZGFzLWFwaSIsImF1ZCI6InByb3llY3RvLWRpc3RyaWJ1aWRhcy1hcGkiLCJhdXRoX3RpbWUiOjE3ODExMzIyNjksInVzZXJfaWQiOiI4bFMwbnNqeUtmVlZaOGx2cENOck5jUUlNTkgyIiwic3ViIjoiOGxTMG5zanlLZlZWWjhsdnBDTnJOY1FJTU5IMiIsImlhdCI6MTc4MTEzMjI2OSwiZXhwIjoxNzgxMTM1ODY5LCJlbWFpbCI6ImVybmVzdG9qdXJhZG8yMDA0QGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjpmYWxzZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJlcm5lc3RvanVyYWRvMjAwNEBnbWFpbC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.FmD4Cg5M80UxlCcRLTeOgA938yC0Nl1HgwH8s_7MLODW2OXVf62hyHm_R7LRwf2OIQSfxQ3JqFT6CrfZE4nQeA8o8KmoNGCcyIMjfX_IHw1xcCjuhQtzRy7qP0nTi4em6r6cPWkfPlRxDw-eJNoMN2hwxuLcMVbo2wYmBdo7vdfsSB51YQqUrTZQK5uAteeOTeesSp1jTXjbb6nZXVXAkNQ2W5kJbNyPpbNOBl36pfOORNk9lHvreBp429T2CE0ksR9V6nomm1RZxilTeKDQd5dK08xH8vMpWEnrSP14h6XHwCCQXGvd8IQ_CXh_NJyXaO7EBFNJexBraxYKw-n1CA
+@IdUsuario = hR6KUPAHxsPPaKeh7mD9OoCQTWA2
+
+# =============================================================
+# PRUEBAS DE RESILIENCIA Y FAILOVER DE BASE DE DATOS
+# =============================================================
+
+### [DB-1] Probar la base de datos activa actual (Supabase -> Aiven -> MongoDB)
+GET {{HostAddress}}/api/test-db
+Accept: application/json
+
+### [DB-2] Probar específicamente la base principal (Supabase)
+GET {{HostAddress}}/api/test-db?target=supabase
+Accept: application/json
+
+### [DB-3] Probar específicamente la réplica de lectura (Aiven)
+GET {{HostAddress}}/api/test-db?target=aiven
+Accept: application/json
+
+### [DB-4] Probar específicamente la base NoSQL de último recurso (MongoDB)
+GET {{HostAddress}}/api/test-db?target=mongo
+Accept: application/json
+
+
+# =============================================================
+# MÓDULO DE USUARIOS & AUTENTICACIÓN
+# =============================================================
+
+### [USER-1] Registro de un nuevo usuario en Firebase y sincronización
+POST {{HostAddress}}/api/usuarios/registro
+Content-Type: application/json
+
+{
+  "email": "falso@gmail.com",
+  "password": "falso21",
+  "nombreCompleto": "Falso Falso",
+  "cedula": "1500000001",
+  "telefono": "0900000000",
+  "direccion": "Prueba de Desactivado"
+}
+
+### [USER-2] Login de usuario (devuelve el token JWT de Firebase)
+POST {{HostAddress}}/api/usuarios/login
+Content-Type: application/json
+
+{
+  "email": "ernestojurado2004@gmail.com",
+  "password": "crysjurado21"
+}
+
+### [USER-3] Listar todos los usuarios activos (Requiere Token de Administrador)
+GET {{HostAddress}}/api/usuarios
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [USER-4] Obtener un usuario por su cédula (Requiere Token de Administrador)
+GET {{HostAddress}}/api/usuarios/cedula/1500453807
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [USER-5] Obtener perfil de un usuario específico por su ID (Requiere Token del mismo usuario o Admin)
+GET {{HostAddress}}/api/usuarios/{{IdUsuario}}
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [USER-6] Actualizar datos de un usuario desde el panel administrativo (Requiere Token de Admin)
+PUT {{HostAddress}}/api/usuarios/{{IdUsuario}}
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "nombreCompleto": "Juan Pablo Jurado",
+  "direccion": "Archidona"
+}
+
+### [USER-7] Editar perfil propio (Requiere Token del propio usuario)
+PUT {{HostAddress}}/api/usuarios/{{IdUsuario}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "nombreCompleto": "Pablo Jurado"
+}
+
+### [USER-8] Borrado lógico de un usuario (Requiere Token de Admin)
+DELETE {{HostAddress}}/api/usuarios/{{IdUsuario}}
+Authorization: Bearer {{Token}}
+
+### [USER-9] Activar de nuevo al usuario (Requiere Token de Admin)
+POST {{HostAddress}}/api/usuarios/{{IdUsuario}}/activar
+Authorization: Bearer {{Token}}
+
+
+# =============================================================
+# MÓDULO DE PRODUCTOS
+# =============================================================
+
+### [PROD-1] Obtener catálogo completo de productos activos
+GET {{HostAddress}}/api/productos
+Accept: application/json
+
+### [PROD-2] Obtener un producto por ID
+GET {{HostAddress}}/api/productos/13
+Accept: application/json
+
+### [PROD-3] Crear un nuevo producto (Requiere Token de Admin)
+POST {{HostAddress}}/api/productos
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "nombre": "Intel Core i5 10ma Gen",
+  "precio": 120.00,
+  "stock": 25,
+  "urlImagen": "http://example.com/i9.jpg"
+}
+
+### [PROD-4] Actualizar producto (Requiere Token de Admin)
+PUT {{HostAddress}}/api/productos/13
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "stock":40
+}
+
+### [PROD-5] Borrado lógico de un producto (Requiere Token de Admin)
+DELETE {{HostAddress}}/api/productos/13
+Authorization: Bearer {{Token}}
+
+### [PROD-6] Reactivar un producto desactivado (Requiere Token de Admin)
+POST {{HostAddress}}/api/productos/13/activar
+Authorization: Bearer {{Token}}
+
+
+# =============================================================
+# MÓDULO DE COMPRAS (CHECKOUT, NOTIFICACIONES Y FACTURACIÓN)
+# =============================================================
+
+### [COMP-1] Compra con EFECTIVO (Genera factura XML y PDF, envía Brevo y Twilio)
+POST {{HostAddress}}/api/compras
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "idUsuario": "{{IdUsuario}}",
+  "detalles": [
+    { "idProducto": 85, "cantidad": 1 }
+  ],
+  "metodoPago": "Efectivo",
+  "lugarEntrega": "Av. Cevallos 1234, Ambato",
+  "requiereFactura": true,
+  "cedulaFactura": "1800034568",
+  "nombreFactura": "Cristian Jurado"
+}
+
+### [COMP-2] Compra con PAYPHONE (Queda en estado PENDIENTE_PAGO hasta webhook)
+POST {{HostAddress}}/api/compras
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "idUsuario": "{{IdUsuario}}",
+  "detalles": [
+    { "idProducto": 85, "cantidad": 1 }
+  ],
+  "metodoPago": "PayPhone",
+  "lugarEntrega": "Retiro en Tienda",
+  "requiereFactura": true,
+  "cedulaFactura": "1800034568",
+  "nombreFactura": "Cristian Jurado"
+}
+
+### [COMP-3] Compra SIN factura (Nota de Venta, no genera XML/PDF)
+POST {{HostAddress}}/api/compras
+Content-Type: application/json
+Authorization: Bearer {{Token}}
+
+{
+  "idUsuario": "{{IdUsuario}}",
+  "detalles": [
+    { "idProducto": 85, "cantidad": 1 }
+  ],
+  "metodoPago": "Transferencia",
+  "lugarEntrega": "Retiro en Tienda",
+  "requiereFactura": false
+}
+
+### [COMP-4] Listar todas las compras (Requiere Token de Admin)
+GET {{HostAddress}}/api/compras
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [COMP-5] Obtener detalle de una compra específica por ID
+GET {{HostAddress}}/api/compras/1
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [COMP-6] Ver compras históricas de un usuario
+GET {{HostAddress}}/api/compras/usuario/{{IdUsuario}}
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### [COMP-7] Anular una compra (Requiere Token de Admin)
+DELETE {{HostAddress}}/api/compras/1
+Authorization: Bearer {{Token}}
+
+
+# =============================================================
+# PASARELA DE PAGOS Y WEBHOOK
+# =============================================================
+
+### [PAGO-1] Consultar estado de pago de una compra
+GET {{HostAddress}}/api/pagos/1/estado
+Accept: application/json
+
+### [PAGO-2] Simular webhook de PayPhone (Confirmar Pago PENDIENTE_PAGO -> ABIERTA)
+POST {{HostAddress}}/api/pagos/1/confirmar
+Content-Type: application/json
+
+
+# =============================================================
+# FACTURACIÓN REST - XML, PDF Y EMAIL
+# =============================================================
+
+### [FACT-1] Ver Factura XML de una compra por ID en body (Legacy)
+POST {{HostAddress}}/api/facturacion
+Content-Type: application/json
+
+{
+  "idCompra": 1
+}
+
+### [FACT-2] Descargar Factura XML por ID en body (Legacy)
+POST {{HostAddress}}/api/facturacion/descargar
+Content-Type: application/json
+
+{
+  "idCompra": 1
+}
+
+### [FACT-3] Ver XML inline de una compra por ID en la URL
+GET {{HostAddress}}/api/facturacion/1/xml
+Accept: application/xml
+
+### [FACT-4] Descargar XML como archivo por ID en la URL
+GET {{HostAddress}}/api/facturacion/1/xml/descargar
+
+### [FACT-5] Ver PDF de la factura inline (para incrustar en iframe)
+GET {{HostAddress}}/api/facturacion/1/pdf
+Accept: application/pdf
+
+### [FACT-6] Descargar PDF de la factura como archivo físico
+GET {{HostAddress}}/api/facturacion/1/pdf/descargar
+
+### [FACT-7] Re-enviar la factura (PDF + XML) al correo del cliente
+POST {{HostAddress}}/api/facturacion/1/enviar-email
+Content-Type: application/json
+
+### [FACT-8] Consultar validez de comprobante en el SRI SOAP
+GET {{HostAddress}}/api/facturacion/consultar/1
+Accept: application/json
