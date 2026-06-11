@@ -13,6 +13,7 @@ namespace TechStore360.Modules.Usuarios
         Task<UsuarioDto?> ObtenerUsuarioParaFacturaAsync(string idUsuario, CancellationToken ct = default);
         Task<UsuarioDto?> ObtenerUsuarioPorCedulaAsync(string cedula, CancellationToken ct = default);
         Task<List<UsuarioDto>> ListarUsuariosAsync(CancellationToken ct = default);
+        Task<List<UsuarioDto>> ListarUsuariosInactivosAsync(CancellationToken ct = default);
         Task<UsuarioDto?> ActualizarUsuarioAsync(string idUsuario, ActualizarUsuarioRequest request, CancellationToken ct = default);
         Task<UsuarioDto?> EditarPerfilAsync(string idUsuario, EditarPerfilRequest request, CancellationToken ct = default);
         Task<bool> EliminarUsuarioAsync(string idUsuario, CancellationToken ct = default);
@@ -86,6 +87,11 @@ namespace TechStore360.Modules.Usuarios
         public async Task<List<UsuarioDto>> ListarUsuariosAsync(CancellationToken ct = default)
         {
             return await _repository.GetAllAsync(ct);
+        }
+
+        public async Task<List<UsuarioDto>> ListarUsuariosInactivosAsync(CancellationToken ct = default)
+        {
+            return await _repository.GetInactivosAsync(ct);
         }
 
         public async Task<UsuarioDto?> ActualizarUsuarioAsync(string idUsuario, ActualizarUsuarioRequest request, CancellationToken ct = default)

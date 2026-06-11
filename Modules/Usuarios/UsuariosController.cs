@@ -56,6 +56,14 @@ namespace TechStore360.Modules.Usuarios
             return Ok(usuarios);
         }
 
+        [HttpGet("inactivos")]
+        [Authorize(Policy = "Admin")]
+        public async Task<IActionResult> ObtenerInactivos(CancellationToken ct)
+        {
+            var usuarios = await _service.ListarUsuariosInactivosAsync(ct);
+            return Ok(usuarios);
+        }
+
         [HttpGet("cedula/{cedula}")]
         [Authorize(Policy = "Admin")]
         public async Task<IActionResult> ObtenerPorCedula(string cedula, CancellationToken ct)

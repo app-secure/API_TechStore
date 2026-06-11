@@ -15,6 +15,7 @@ namespace TechStore360.Modules.Usuarios
         Task<UsuarioDto?> GetByIdAsync(string idUsuario, CancellationToken ct = default);
         Task<UsuarioDto?> GetByCedulaAsync(string cedula, CancellationToken ct = default);
         Task<List<UsuarioDto>> GetAllAsync(CancellationToken ct = default);
+        Task<List<UsuarioDto>> GetInactivosAsync(CancellationToken ct = default);
         Task<UsuarioDto> AddAsync(UsuarioDto usuario, CancellationToken ct = default);
         Task<UsuarioDto?> UpdateAsync(string idUsuario, ActualizarUsuarioRequest request, CancellationToken ct = default);
         Task<UsuarioDto?> UpdatePerfilAsync(string idUsuario, EditarPerfilRequest request, CancellationToken ct = default);
@@ -111,7 +112,7 @@ namespace TechStore360.Modules.Usuarios
                 try
                 {
                     using var conn = await _dbExecutor.GetPostgresConnectionAsync();
-                    const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE id_usuario = $1 AND estado = true;";
+                    const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE id_usuario = $1;";
                     using var cmd = new NpgsqlCommand(sql, conn);
                     cmd.Parameters.AddWithValue(idUsuario);
                     using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -138,7 +139,7 @@ namespace TechStore360.Modules.Usuarios
             {
                 using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
                 await conn.OpenAsync(ct);
-                const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE id_usuario = $1 AND estado = true;";
+                const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE id_usuario = $1;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(idUsuario);
                 using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -160,7 +161,7 @@ namespace TechStore360.Modules.Usuarios
             {
                 var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("usuarios");
                 var doc = await collection.Find(Builders<BsonDocument>.Filter.Eq("_id", idUsuario)).FirstOrDefaultAsync(ct);
-                if (doc != null && doc["estado"].AsBoolean)
+                if (doc != null)
                 {
                     return FromBson(doc);
                 }
@@ -297,6 +298,74 @@ namespace TechStore360.Modules.Usuarios
             {
                 var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("usuarios");
                 var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("estado", true)).ToListAsync(ct);
+                foreach (var doc in docs)
+                {
+                    list.Add(FromBson(doc));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        public async Task<List<UsuarioDto>> GetInactivosAsync(CancellationToken ct = default)
+        {
+            var list = new List<UsuarioDto>();
+            var source = await _dbExecutor.GetActiveDatabaseAsync();
+            if (source == ActiveDbSource.Supabase || source == ActiveDbSource.Aiven)
+            {
+                try
+                {
+                    using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                    const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE estado = false ORDER BY nombre_completo ASC;";
+                    using var cmd = new NpgsqlCommand(sql, conn);
+                    using var reader = await cmd.ExecuteReaderAsync(ct);
+                    while (await reader.ReadAsync(ct))
+                    {
+                        list.Add(MapReaderToDto(reader));
+                    }
+                    return list;
+                }
+                catch when (source == ActiveDbSource.Supabase)
+                {
+                    return await GetInactivosFromFallbackAsync(ct);
+                }
+            }
+            else
+            {
+                return await GetInactivosFromMongoAsync(ct);
+            }
+        }
+
+        private async Task<List<UsuarioDto>> GetInactivosFromFallbackAsync(CancellationToken ct)
+        {
+            var list = new List<UsuarioDto>();
+            try
+            {
+                using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+                await conn.OpenAsync(ct);
+                const string sql = "SELECT id_usuario, nombre_completo, email, cedula, telefono, direccion, rol, estado FROM public.usuarios WHERE estado = false ORDER BY nombre_completo ASC;";
+                using var cmd = new NpgsqlCommand(sql, conn);
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    list.Add(MapReaderToDto(reader));
+                }
+                return list;
+            }
+            catch
+            {
+                return await GetInactivosFromMongoAsync(ct);
+            }
+        }
+
+        private async Task<List<UsuarioDto>> GetInactivosFromMongoAsync(CancellationToken ct)
+        {
+            var list = new List<UsuarioDto>();
+            try
+            {
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("usuarios");
+                var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("estado", false)).ToListAsync(ct);
                 foreach (var doc in docs)
                 {
                     list.Add(FromBson(doc));
