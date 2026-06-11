@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Npgsql;
+using MongoDB.Driver;
+using MongoDB.Bson;
 using TechStore360.Data;
 
 namespace TechStore360.Modules.Productos
@@ -43,12 +45,81 @@ namespace TechStore360.Modules.Productos
             );
         }
 
+        private static ProductoDto FromBson(BsonDocument doc)
+        {
+            return new ProductoDto(
+                IdProducto: Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["_id"])),
+                Nombre: doc["nombre"].AsString,
+                Precio: Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(doc["precio"])),
+                Stock: Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["stock"])),
+                UrlImagen: doc.Contains("url_imagen") && !doc["url_imagen"].IsBsonNull ? doc["url_imagen"].AsString : null,
+                Estado: doc["estado"].AsBoolean
+            );
+        }
+
+        private static BsonDocument ToBson(ProductoDto p)
+        {
+            return new BsonDocument
+            {
+                { "_id", p.IdProducto },
+                { "nombre", p.Nombre },
+                { "precio", (double)p.Precio },
+                { "stock", p.Stock },
+                { "url_imagen", p.UrlImagen != null ? (BsonValue)p.UrlImagen : BsonNull.Value },
+                { "estado", p.Estado }
+            };
+        }
+
+        private async Task SyncToMongoBackgroundAsync(ProductoDto p)
+        {
+            try
+            {
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                var doc = ToBson(p);
+                await collection.ReplaceOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", p.IdProducto),
+                    doc,
+                    new ReplaceOptions { IsUpsert = true }
+                );
+            }
+            catch {}
+        }
+
         public async Task<IReadOnlyList<ProductoDto>> GetAllAsync(CancellationToken cancellationToken = default)
         {
             var source = await _dbExecutor.GetActiveDatabaseAsync();
+            if (source == ActiveDbSource.Supabase || source == ActiveDbSource.Aiven)
+            {
+                try
+                {
+                    using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                    const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
+                    using var cmd = new NpgsqlCommand(sql, conn);
+                    var list = new List<ProductoDto>();
+                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        list.Add(MapReaderToDto(reader));
+                    }
+                    return list;
+                }
+                catch when (source == ActiveDbSource.Supabase)
+                {
+                    return await GetAllFromFallbackAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                return await GetAllFromMongoAsync(cancellationToken);
+            }
+        }
+
+        private async Task<IReadOnlyList<ProductoDto>> GetAllFromFallbackAsync(CancellationToken cancellationToken)
+        {
             try
             {
-                using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+                await conn.OpenAsync(cancellationToken);
                 const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 var list = new List<ProductoDto>();
@@ -59,33 +130,63 @@ namespace TechStore360.Modules.Productos
                 }
                 return list;
             }
-            catch when (source == ActiveDbSource.Supabase)
+            catch
             {
-                return await GetAllFromFallbackAsync(cancellationToken);
+                return await GetAllFromMongoAsync(cancellationToken);
             }
         }
 
-        private async Task<IReadOnlyList<ProductoDto>> GetAllFromFallbackAsync(CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<ProductoDto>> GetAllFromMongoAsync(CancellationToken cancellationToken)
         {
-            using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
-            await conn.OpenAsync(cancellationToken);
-            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = true ORDER BY nombre ASC;";
-            using var cmd = new NpgsqlCommand(sql, conn);
             var list = new List<ProductoDto>();
-            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            try
             {
-                list.Add(MapReaderToDto(reader));
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("estado", true)).Sort(Builders<BsonDocument>.Sort.Ascending("nombre")).ToListAsync(cancellationToken);
+                foreach (var doc in docs)
+                {
+                    list.Add(FromBson(doc));
+                }
             }
+            catch {}
             return list;
         }
 
         public async Task<ProductoDto?> GetByIdAsync(int idProducto, CancellationToken cancellationToken = default)
         {
             var source = await _dbExecutor.GetActiveDatabaseAsync();
+            if (source == ActiveDbSource.Supabase || source == ActiveDbSource.Aiven)
+            {
+                try
+                {
+                    using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                    const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto = $1;";
+                    using var cmd = new NpgsqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue(idProducto);
+                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    if (await reader.ReadAsync(cancellationToken))
+                    {
+                        return MapReaderToDto(reader);
+                    }
+                    return null;
+                }
+                catch when (source == ActiveDbSource.Supabase)
+                {
+                    return await GetByIdFromFallbackAsync(idProducto, cancellationToken);
+                }
+            }
+            else
+            {
+                return await GetByIdFromMongoAsync(idProducto, cancellationToken);
+            }
+        }
+
+        private async Task<ProductoDto?> GetByIdFromFallbackAsync(int idProducto, CancellationToken cancellationToken)
+        {
             try
             {
-                using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+                await conn.OpenAsync(cancellationToken);
                 const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto = $1;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(idProducto);
@@ -96,24 +197,24 @@ namespace TechStore360.Modules.Productos
                 }
                 return null;
             }
-            catch when (source == ActiveDbSource.Supabase)
+            catch
             {
-                return await GetByIdFromFallbackAsync(idProducto, cancellationToken);
+                return await GetByIdFromMongoAsync(idProducto, cancellationToken);
             }
         }
 
-        private async Task<ProductoDto?> GetByIdFromFallbackAsync(int idProducto, CancellationToken cancellationToken)
+        private async Task<ProductoDto?> GetByIdFromMongoAsync(int idProducto, CancellationToken cancellationToken)
         {
-            using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
-            await conn.OpenAsync(cancellationToken);
-            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto = $1;";
-            using var cmd = new NpgsqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue(idProducto);
-            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            if (await reader.ReadAsync(cancellationToken))
+            try
             {
-                return MapReaderToDto(reader);
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                var doc = await collection.Find(Builders<BsonDocument>.Filter.Eq("_id", idProducto)).FirstOrDefaultAsync(cancellationToken);
+                if (doc != null)
+                {
+                    return FromBson(doc);
+                }
             }
+            catch {}
             return null;
         }
 
@@ -138,7 +239,9 @@ namespace TechStore360.Modules.Productos
                 using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
                 if (await reader.ReadAsync(cancellationToken))
                 {
-                    return MapReaderToDto(reader);
+                    var inserted = MapReaderToDto(reader);
+                    _ = Task.Run(() => SyncToMongoBackgroundAsync(inserted));
+                    return inserted;
                 }
                 throw new InvalidOperationException("No se pudo insertar el producto en Supabase.");
             }
@@ -176,7 +279,9 @@ namespace TechStore360.Modules.Productos
                 using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
                 if (await reader.ReadAsync(cancellationToken))
                 {
-                    return MapReaderToDto(reader);
+                    var updated = MapReaderToDto(reader);
+                    _ = Task.Run(() => SyncToMongoBackgroundAsync(updated));
+                    return updated;
                 }
             }
             return null;
@@ -194,7 +299,21 @@ namespace TechStore360.Modules.Productos
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(idProducto);
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                return rowsAffected > 0;
+                if (rowsAffected > 0)
+                {
+                    _ = Task.Run(async () => {
+                        try
+                        {
+                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                            await collection.UpdateOneAsync(
+                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
+                                Builders<BsonDocument>.Update.Set("estado", false)
+                            );
+                        }
+                        catch {}
+                    });
+                    return true;
+                }
             }
             return false;
         }
@@ -205,9 +324,43 @@ namespace TechStore360.Modules.Productos
             if (!idsList.Any()) return new List<ProductoDto>();
 
             var source = await _dbExecutor.GetActiveDatabaseAsync();
+            if (source == ActiveDbSource.Supabase || source == ActiveDbSource.Aiven)
+            {
+                try
+                {
+                    using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                    var placeholders = string.Join(",", idsList.Select((_, index) => $"${index + 1}"));
+                    var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto IN ({placeholders});";
+                    using var cmd = new NpgsqlCommand(sql, conn);
+                    foreach (var id in idsList)
+                    {
+                        cmd.Parameters.AddWithValue(id);
+                    }
+                    var list = new List<ProductoDto>();
+                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        list.Add(MapReaderToDto(reader));
+                    }
+                    return list;
+                }
+                catch when (source == ActiveDbSource.Supabase)
+                {
+                    return await GetByIdsFromFallbackAsync(idsList, cancellationToken);
+                }
+            }
+            else
+            {
+                return await GetByIdsFromMongoAsync(idsList, cancellationToken);
+            }
+        }
+
+        private async Task<IReadOnlyList<ProductoDto>> GetByIdsFromFallbackAsync(List<int> idsList, CancellationToken cancellationToken)
+        {
             try
             {
-                using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+                await conn.OpenAsync(cancellationToken);
                 var placeholders = string.Join(",", idsList.Select((_, index) => $"${index + 1}"));
                 var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto IN ({placeholders});";
                 using var cmd = new NpgsqlCommand(sql, conn);
@@ -223,29 +376,25 @@ namespace TechStore360.Modules.Productos
                 }
                 return list;
             }
-            catch when (source == ActiveDbSource.Supabase)
+            catch
             {
-                return await GetByIdsFromFallbackAsync(idsList, cancellationToken);
+                return await GetByIdsFromMongoAsync(idsList, cancellationToken);
             }
         }
 
-        private async Task<IReadOnlyList<ProductoDto>> GetByIdsFromFallbackAsync(List<int> idsList, CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<ProductoDto>> GetByIdsFromMongoAsync(List<int> idsList, CancellationToken cancellationToken)
         {
-            using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
-            await conn.OpenAsync(cancellationToken);
-            var placeholders = string.Join(",", idsList.Select((_, index) => $"${index + 1}"));
-            var sql = $"SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE id_producto IN ({placeholders});";
-            using var cmd = new NpgsqlCommand(sql, conn);
-            foreach (var id in idsList)
-            {
-                cmd.Parameters.AddWithValue(id);
-            }
             var list = new List<ProductoDto>();
-            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            try
             {
-                list.Add(MapReaderToDto(reader));
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                var docs = await collection.Find(Builders<BsonDocument>.Filter.In("_id", idsList)).ToListAsync(cancellationToken);
+                foreach (var doc in docs)
+                {
+                    list.Add(FromBson(doc));
+                }
             }
+            catch {}
             return list;
         }
 
@@ -262,7 +411,21 @@ namespace TechStore360.Modules.Productos
                 cmd.Parameters.AddWithValue(cantidadDelta);
                 cmd.Parameters.AddWithValue(idProducto);
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                return rowsAffected > 0;
+                if (rowsAffected > 0)
+                {
+                    _ = Task.Run(async () => {
+                        try
+                        {
+                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                            await collection.UpdateOneAsync(
+                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
+                                Builders<BsonDocument>.Update.Inc("stock", cantidadDelta)
+                            );
+                        }
+                        catch {}
+                    });
+                    return true;
+                }
             }
             return false;
         }
@@ -279,7 +442,21 @@ namespace TechStore360.Modules.Productos
                 using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue(idProducto);
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                return rowsAffected > 0;
+                if (rowsAffected > 0)
+                {
+                    _ = Task.Run(async () => {
+                        try
+                        {
+                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                            await collection.UpdateOneAsync(
+                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
+                                Builders<BsonDocument>.Update.Set("estado", true)
+                            );
+                        }
+                        catch {}
+                    });
+                    return true;
+                }
             }
             return false;
         }
@@ -287,9 +464,38 @@ namespace TechStore360.Modules.Productos
         public async Task<IReadOnlyList<ProductoDto>> GetInactivosAsync(CancellationToken cancellationToken = default)
         {
             var source = await _dbExecutor.GetActiveDatabaseAsync();
+            if (source == ActiveDbSource.Supabase || source == ActiveDbSource.Aiven)
+            {
+                try
+                {
+                    using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                    const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = false ORDER BY nombre ASC;";
+                    using var cmd = new NpgsqlCommand(sql, conn);
+                    var list = new List<ProductoDto>();
+                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        list.Add(MapReaderToDto(reader));
+                    }
+                    return list;
+                }
+                catch when (source == ActiveDbSource.Supabase)
+                {
+                    return await GetInactivosFromFallbackAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                return await GetInactivosFromMongoAsync(cancellationToken);
+            }
+        }
+
+        private async Task<IReadOnlyList<ProductoDto>> GetInactivosFromFallbackAsync(CancellationToken cancellationToken)
+        {
             try
             {
-                using var conn = await _dbExecutor.GetPostgresConnectionAsync();
+                using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
+                await conn.OpenAsync(cancellationToken);
                 const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = false ORDER BY nombre ASC;";
                 using var cmd = new NpgsqlCommand(sql, conn);
                 var list = new List<ProductoDto>();
@@ -300,24 +506,25 @@ namespace TechStore360.Modules.Productos
                 }
                 return list;
             }
-            catch when (source == ActiveDbSource.Supabase)
+            catch
             {
-                return await GetInactivosFromFallbackAsync(cancellationToken);
+                return await GetInactivosFromMongoAsync(cancellationToken);
             }
         }
 
-        private async Task<IReadOnlyList<ProductoDto>> GetInactivosFromFallbackAsync(CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<ProductoDto>> GetInactivosFromMongoAsync(CancellationToken cancellationToken)
         {
-            using var conn = new NpgsqlConnection(ParsePostgresUrl(Environment.GetEnvironmentVariable("AIVEN_URL")));
-            await conn.OpenAsync(cancellationToken);
-            const string sql = "SELECT id_producto, nombre, precio, stock, url_imagen, estado FROM public.productos WHERE estado = false ORDER BY nombre ASC;";
-            using var cmd = new NpgsqlCommand(sql, conn);
             var list = new List<ProductoDto>();
-            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            try
             {
-                list.Add(MapReaderToDto(reader));
+                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
+                var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("estado", false)).Sort(Builders<BsonDocument>.Sort.Ascending("nombre")).ToListAsync(cancellationToken);
+                foreach (var doc in docs)
+                {
+                    list.Add(FromBson(doc));
+                }
             }
+            catch {}
             return list;
         }
 
