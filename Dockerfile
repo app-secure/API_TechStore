@@ -9,6 +9,22 @@ RUN dotnet publish "TechStore360.csproj" -c Release -o /app/publish /p:UseAppHos
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
+
+# Instalar dependencias nativas para WkHtmlToPdf
+RUN apt-get update && apt-get install -y \
+    libgdiplus \
+    libjpeg62-turbo \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libfontconfig1 \
+    libfreetype6 \
+    fontconfig \
+    xfonts-75dpi \
+    xfonts-base \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish .
 
 EXPOSE 8080
