@@ -35,6 +35,10 @@ namespace TechStore360.Modules.Usuarios
         {
             var authResult = await _authProvider.LoginAsync(request.Email, request.Password, ct);
             var usuario = await _repository.GetByIdAsync(authResult.IdUsuario, ct);
+            if (usuario != null && !usuario.Estado)
+            {
+                throw new ArgumentException("Usuario desactivado. El admin te desactivó por políticas de la empresa.");
+            }
             var rol = usuario?.Rol ?? "USUARIO";
             return authResult with { Rol = rol };
         }

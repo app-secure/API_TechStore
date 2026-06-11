@@ -112,6 +112,29 @@ namespace TechStore360.Modules.Usuarios
             return Ok(new { mensaje = "Se ha activado el usuario" });
         }
 
+        [HttpGet("mi-estado")]
+        [Authorize]
+        public async Task<IActionResult> ObtenerMiEstado(CancellationToken ct)
+        {
+            var currentUid = User.FindFirst("user_id")?.Value;
+            if (string.IsNullOrEmpty(currentUid))
+            {
+                return Unauthorized(new { mensaje = "Token inválido." });
+            }
+
+            var usuario = await _service.ObtenerUsuarioAsync(currentUid, ct);
+            if (usuario == null)
+            {
+                return NotFound(new { mensaje = "Usuario no encontrado." });
+            }
+
+            return Ok(new { 
+                idUsuario = usuario.IdUsuario,
+                estado = usuario.Estado,
+                mensaje = usuario.Estado ? "Usuario activo." : "El admin te desactivó por políticas de empresa."
+            });
+        }
+
         [HttpGet("{idUsuario}")]
         [Authorize]
         public async Task<IActionResult> ObtenerPorId(string idUsuario, CancellationToken ct)
@@ -129,6 +152,12 @@ namespace TechStore360.Modules.Usuarios
             {
                 return NotFound(new { mensaje = "Usuario no encontrado." });
             }
+
+            if (!usuario.Estado && !esAdmin)
+            {
+                return StatusCode(403, new { mensaje = "El admin te desactivó por políticas de empresa." });
+            }
+
             return Ok(usuario);
         }
 
