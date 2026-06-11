@@ -306,6 +306,7 @@ namespace TechStore360.Modules.Usuarios
             catch
             {
             }
+            return list;
         }
 
         public async Task<List<UsuarioDto>> GetInactivosAsync(CancellationToken ct = default)
