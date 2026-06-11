@@ -65,51 +65,99 @@ namespace TechStore360.Modules.Compras
             {
                 foreach (var val in doc["detalles"].AsBsonArray)
                 {
-                    var d = val.AsBsonDocument;
-                    var qty = Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(d["cantidad"]));
-                    var price = Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(d["precio_unitario"]));
-                    detalles.Add(new DetalleCompraDto(
-                        IdProducto: Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(d["id_producto"])),
-                        NombreProducto: "Componente Tecnológico",
-                        UrlImagen: null,
-                        Cantidad: qty,
-                        PrecioUnitario: price,
-                        Subtotal: qty * price
-                    ));
+                    try
+                    {
+                        var d = val.AsBsonDocument;
+                        var idProd = d.Contains("id_producto") ? Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(d["id_producto"])) : 0;
+                        var qty = d.Contains("cantidad") ? Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(d["cantidad"])) : 0;
+                        var price = d.Contains("precio_unitario") ? Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(d["precio_unitario"])) : 0m;
+                        var nameProd = d.Contains("nombre_producto") && !d["nombre_producto"].IsBsonNull ? d["nombre_producto"].AsString : "Componente Tecnológico";
+                        var urlImg = d.Contains("url_imagen") && !d["url_imagen"].IsBsonNull ? d["url_imagen"].AsString : null;
+
+                        detalles.Add(new DetalleCompraDto(
+                            IdProducto: idProd,
+                            NombreProducto: nameProd,
+                            UrlImagen: urlImg,
+                            Cantidad: qty,
+                            PrecioUnitario: price,
+                            Subtotal: qty * price
+                        ));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error al mapear detalle de compra desde MongoDB: {ex.Message}");
+                    }
                 }
             }
 
-            var total = Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(doc["total_compra"]));
+            var total = doc.Contains("total_compra") && !doc["total_compra"].IsBsonNull ? Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(doc["total_compra"])) : 0m;
             decimal tasaIva = 0.15m;
             decimal subtotalCalculado = total / (1 + tasaIva);
             decimal ivaCalculado = total - subtotalCalculado;
 
+            var id = doc.Contains("_id") ? Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["_id"])) : 0;
+            var idUsuario = doc.Contains("id_usuario") && !doc["id_usuario"].IsBsonNull ? doc["id_usuario"].AsString : "";
+            var estado = doc.Contains("estado") && !doc["estado"].IsBsonNull ? doc["estado"].AsString : "PENDIENTE";
+            var metodoPago = doc.Contains("metodo_pago") && !doc["metodo_pago"].IsBsonNull ? doc["metodo_pago"].AsString : "Efectivo";
+            var lugarEntrega = doc.Contains("lugar_entrega") && !doc["lugar_entrega"].IsBsonNull ? doc["lugar_entrega"].AsString : "";
+            var requiereFactura = doc.Contains("requiere_factura") && !doc["requiere_factura"].IsBsonNull ? doc["requiere_factura"].AsBoolean : true;
+            var nombreFactura = doc.Contains("nombre_factura") && !doc["nombre_factura"].IsBsonNull ? doc["nombre_factura"].AsString : "";
+            var cedulaFactura = doc.Contains("cedula_factura") && !doc["cedula_factura"].IsBsonNull ? doc["cedula_factura"].AsString : "";
+
+            DateTime createdAt;
+            if (doc.Contains("created_at") && !doc["created_at"].IsBsonNull)
+            {
+                try { createdAt = doc["created_at"].ToUniversalTime(); }
+                catch { createdAt = DateTime.UtcNow; }
+            }
+            else
+            {
+                createdAt = DateTime.UtcNow;
+            }
+
             return new CompraCompletaDto(
-                NumeroFactura: Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["_id"])),
-                IdUsuario: doc["id_usuario"].AsString,
+                NumeroFactura: id,
+                IdUsuario: idUsuario,
                 TotalCompra: total,
                 Subtotal: subtotalCalculado,
                 Iva: ivaCalculado,
-                Estado: doc["estado"].AsString,
-                MetodoPago: doc["metodo_pago"].AsString,
-                LugarEntrega: doc["lugar_entrega"].AsString,
-                RequiereFactura: doc["requiere_factura"].AsBoolean,
-                NombreFactura: doc.Contains("nombre_factura") ? doc["nombre_factura"].AsString : "",
-                CedulaFactura: doc.Contains("cedula_factura") ? doc["cedula_factura"].AsString : "",
-                CreatedAt: doc["created_at"].ToUniversalTime(),
+                Estado: estado,
+                MetodoPago: metodoPago,
+                LugarEntrega: lugarEntrega,
+                RequiereFactura: requiereFactura,
+                NombreFactura: nombreFactura,
+                CedulaFactura: cedulaFactura,
+                CreatedAt: createdAt,
                 Detalles: detalles
             );
         }
 
         private static CompraResumenDto ResumenFromBson(BsonDocument doc)
         {
+            var id = doc.Contains("_id") ? Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["_id"])) : 0;
+            var idUsuario = doc.Contains("id_usuario") && !doc["id_usuario"].IsBsonNull ? doc["id_usuario"].AsString : "";
+            var total = doc.Contains("total_compra") && !doc["total_compra"].IsBsonNull ? Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(doc["total_compra"])) : 0m;
+            var estado = doc.Contains("estado") && !doc["estado"].IsBsonNull ? doc["estado"].AsString : "PENDIENTE";
+            var metodoPago = doc.Contains("metodo_pago") && !doc["metodo_pago"].IsBsonNull ? doc["metodo_pago"].AsString : "Efectivo";
+
+            DateTime createdAt;
+            if (doc.Contains("created_at") && !doc["created_at"].IsBsonNull)
+            {
+                try { createdAt = doc["created_at"].ToUniversalTime(); }
+                catch { createdAt = DateTime.UtcNow; }
+            }
+            else
+            {
+                createdAt = DateTime.UtcNow;
+            }
+
             return new CompraResumenDto(
-                NumeroFactura: Convert.ToInt32(BsonTypeMapper.MapToDotNetValue(doc["_id"])),
-                IdUsuario: doc["id_usuario"].AsString,
-                TotalCompra: Convert.ToDecimal(BsonTypeMapper.MapToDotNetValue(doc["total_compra"])),
-                Estado: doc["estado"].AsString,
-                MetodoPago: doc["metodo_pago"].AsString,
-                CreatedAt: doc["created_at"].ToUniversalTime()
+                NumeroFactura: id,
+                IdUsuario: idUsuario,
+                TotalCompra: total,
+                Estado: estado,
+                MetodoPago: metodoPago,
+                CreatedAt: createdAt
             );
         }
 
@@ -572,11 +620,19 @@ namespace TechStore360.Modules.Compras
                 var docs = await collection.Find(new BsonDocument()).Sort(Builders<BsonDocument>.Sort.Descending("created_at")).ToListAsync(cancellationToken);
                 foreach (var doc in docs)
                 {
-                    list.Add(ResumenFromBson(doc));
+                    try
+                    {
+                        list.Add(ResumenFromBson(doc));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error al mapear compra desde MongoDB: {ex.Message}");
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"Error al consultar compras en MongoDB: {ex.Message}");
             }
             return list;
         }
@@ -657,11 +713,19 @@ namespace TechStore360.Modules.Compras
                 var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("id_usuario", idUsuario)).Sort(Builders<BsonDocument>.Sort.Descending("created_at")).ToListAsync(cancellationToken);
                 foreach (var doc in docs)
                 {
-                    list.Add(ResumenFromBson(doc));
+                    try
+                    {
+                        list.Add(ResumenFromBson(doc));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error al mapear compra del usuario desde MongoDB: {ex.Message}");
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"Error al consultar compras de usuario en MongoDB: {ex.Message}");
             }
             return list;
         }

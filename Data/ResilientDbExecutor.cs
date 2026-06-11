@@ -70,7 +70,7 @@ namespace TechStore360.Data
 
         public async Task<ActiveDbSource> GetActiveDatabaseAsync()
         {
-            if (DateTime.UtcNow - _lastCheck < TimeSpan.FromSeconds(10))
+            if (DateTime.UtcNow - _lastCheck < TimeSpan.FromSeconds(5))
             {
                 return _cachedSource;
             }
@@ -78,7 +78,7 @@ namespace TechStore360.Data
             await _semaphore.WaitAsync();
             try
             {
-                if (DateTime.UtcNow - _lastCheck < TimeSpan.FromSeconds(10))
+                if (DateTime.UtcNow - _lastCheck < TimeSpan.FromSeconds(5))
                 {
                     return _cachedSource;
                 }
