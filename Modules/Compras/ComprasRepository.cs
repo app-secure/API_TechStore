@@ -253,17 +253,80 @@ namespace TechStore360.Modules.Compras
             );
         }
 
+        private async Task SaveToMongoAsync(int numeroFactura, MaestroCompraModel maestro, List<DetalleCompraModel> detalles, CancellationToken cancellationToken = default)
+        {
+            var db = _dbExecutor.GetMongoDatabase();
+            var maestroCollName = GetMaestroCollectionName();
+
+            if (maestroCollName == "compras")
+            {
+                var collection = db.GetCollection<BsonDocument>("compras");
+                var doc = CompraToBson(numeroFactura, maestro, detalles);
+                var filter = Builders<BsonDocument>.Filter.Eq("_id", numeroFactura);
+                await collection.ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+            }
+            else
+            {
+                var maestroCollection = db.GetCollection<BsonDocument>(maestroCollName);
+                var maestroDoc = new BsonDocument
+                {
+                    { "_id", new BsonDocument("numero_factura", numeroFactura) },
+                    { "numero_factura", numeroFactura },
+                    { "fecha_compra", maestro.CreatedAt.ToString("o") },
+                    { "id_usuario", maestro.IdUsuario },
+                    { "total_compra", (double)maestro.TotalCompra },
+                    { "estado", maestro.Estado },
+                    { "created_at", maestro.CreatedAt.ToString("o") },
+                    { "updated_at", DateTime.UtcNow.ToString("o") },
+                    { "metodo_pago", maestro.MetodoPago },
+                    { "lugar_entrega", maestro.LugarEntrega },
+                    { "requiere_factura", maestro.RequiereFactura },
+                    { "cedula_factura", maestro.CedulaFactura ?? "" },
+                    { "nombre_factura", maestro.NombreFactura ?? "" },
+                    { "__deleted", "false" }
+                };
+
+                var maestroFilter = Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
+                    Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
+                    Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
+                );
+                await maestroCollection.ReplaceOneAsync(maestroFilter, maestroDoc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+
+                var detalleCollName = GetDetalleCollectionName();
+                var detailCollection = db.GetCollection<BsonDocument>(detalleCollName);
+
+                foreach (var d in detalles)
+                {
+                    var numDetalle = d.NumeroDetalle > 0 ? d.NumeroDetalle : Random.Shared.Next(100000, 999999);
+                    var detailDoc = new BsonDocument
+                    {
+                        { "_id", new BsonDocument("numero_detalle", numDetalle) },
+                        { "numero_detalle", numDetalle },
+                        { "numero_factura", numeroFactura },
+                        { "id_producto", d.IdProducto },
+                        { "cantidad", d.Cantidad },
+                        { "precio_unitario", (double)d.PrecioUnitario },
+                        { "created_at", maestro.CreatedAt.ToString("o") },
+                        { "updated_at", DateTime.UtcNow.ToString("o") },
+                        { "__deleted", "false" }
+                    };
+
+                    var detailFilter = Builders<BsonDocument>.Filter.Or(
+                        Builders<BsonDocument>.Filter.Eq("_id", numDetalle),
+                        Builders<BsonDocument>.Filter.Eq("numero_detalle", numDetalle),
+                        Builders<BsonDocument>.Filter.Eq("_id.numero_detalle", numDetalle)
+                    );
+                    await detailCollection.ReplaceOneAsync(detailFilter, detailDoc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+                }
+            }
+        }
+
         private async Task SyncToMongoBackgroundAsync(int numeroFactura, MaestroCompraModel maestro, List<DetalleCompraModel> detalles)
         {
             try
             {
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
-                var doc = CompraToBson(numeroFactura, maestro, detalles);
-                await collection.ReplaceOneAsync(
-                    Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
-                    doc,
-                    new ReplaceOptions { IsUpsert = true }
-                );
+                await SaveToMongoAsync(numeroFactura, maestro, detalles, CancellationToken.None);
             }
             catch
             {
@@ -354,9 +417,7 @@ namespace TechStore360.Modules.Compras
             else if (source == ActiveDbSource.MongoDB)
             {
                 var numFactura = Random.Shared.Next(100000, 999999);
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
-                var doc = CompraToBson(numFactura, maestro, detalles);
-                await collection.InsertOneAsync(doc, null, cancellationToken);
+                await SaveToMongoAsync(numFactura, maestro, detalles, cancellationToken);
                 return new CompraCreada(numFactura, maestro.TotalCompra);
             }
             throw new InvalidOperationException("Escritura no disponible.");
@@ -381,9 +442,16 @@ namespace TechStore360.Modules.Compras
                     {
                         try
                         {
-                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
-                            await collection.UpdateOneAsync(
+                            var db = _dbExecutor.GetMongoDatabase();
+                            var maestroCollName = GetMaestroCollectionName();
+                            var collection = db.GetCollection<BsonDocument>(maestroCollName);
+                            var filter = Builders<BsonDocument>.Filter.Or(
                                 Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
+                                Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
+                                Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
+                            );
+                            await collection.UpdateOneAsync(
+                                filter,
                                 Builders<BsonDocument>.Update.Set("estado", nuevoEstado)
                             );
                         }
@@ -394,9 +462,16 @@ namespace TechStore360.Modules.Compras
             }
             else if (source == ActiveDbSource.MongoDB)
             {
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
-                var result = await collection.UpdateOneAsync(
+                var db = _dbExecutor.GetMongoDatabase();
+                var maestroCollName = GetMaestroCollectionName();
+                var collection = db.GetCollection<BsonDocument>(maestroCollName);
+                var filter = Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
+                    Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
+                    Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
+                );
+                var result = await collection.UpdateOneAsync(
+                    filter,
                     Builders<BsonDocument>.Update.Set("estado", nuevoEstado),
                     null,
                     cancellationToken
@@ -738,7 +813,9 @@ namespace TechStore360.Modules.Compras
             var list = new List<CompraResumenDto>();
             try
             {
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
+                var db = _dbExecutor.GetMongoDatabase();
+                var maestroCollName = GetMaestroCollectionName();
+                var collection = db.GetCollection<BsonDocument>(maestroCollName);
                 var docs = await collection.Find(new BsonDocument()).Sort(Builders<BsonDocument>.Sort.Descending("created_at")).ToListAsync(cancellationToken);
                 foreach (var doc in docs)
                 {
@@ -831,7 +908,9 @@ namespace TechStore360.Modules.Compras
             var list = new List<CompraResumenDto>();
             try
             {
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("compras");
+                var db = _dbExecutor.GetMongoDatabase();
+                var maestroCollName = GetMaestroCollectionName();
+                var collection = db.GetCollection<BsonDocument>(maestroCollName);
                 var docs = await collection.Find(Builders<BsonDocument>.Filter.Eq("id_usuario", idUsuario)).Sort(Builders<BsonDocument>.Sort.Descending("created_at")).ToListAsync(cancellationToken);
                 foreach (var doc in docs)
                 {
