@@ -70,20 +70,7 @@ namespace TechStore360.Modules.Productos
             };
         }
 
-        private async Task SyncToMongoBackgroundAsync(ProductoDto p)
-        {
-            try
-            {
-                var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
-                var doc = ToBson(p);
-                await collection.ReplaceOneAsync(
-                    Builders<BsonDocument>.Filter.Eq("_id", p.IdProducto),
-                    doc,
-                    new ReplaceOptions { IsUpsert = true }
-                );
-            }
-            catch {}
-        }
+
 
         public async Task<IReadOnlyList<ProductoDto>> GetAllAsync(CancellationToken cancellationToken = default)
         {
@@ -240,7 +227,6 @@ namespace TechStore360.Modules.Productos
                 if (await reader.ReadAsync(cancellationToken))
                 {
                     var inserted = MapReaderToDto(reader);
-                    _ = Task.Run(() => SyncToMongoBackgroundAsync(inserted));
                     return inserted;
                 }
                 throw new InvalidOperationException("No se pudo insertar el producto en Supabase.");
@@ -280,7 +266,6 @@ namespace TechStore360.Modules.Productos
                 if (await reader.ReadAsync(cancellationToken))
                 {
                     var updated = MapReaderToDto(reader);
-                    _ = Task.Run(() => SyncToMongoBackgroundAsync(updated));
                     return updated;
                 }
             }
@@ -301,17 +286,6 @@ namespace TechStore360.Modules.Productos
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
                 if (rowsAffected > 0)
                 {
-                    _ = Task.Run(async () => {
-                        try
-                        {
-                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
-                            await collection.UpdateOneAsync(
-                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
-                                Builders<BsonDocument>.Update.Set("estado", false)
-                            );
-                        }
-                        catch {}
-                    });
                     return true;
                 }
             }
@@ -413,17 +387,6 @@ namespace TechStore360.Modules.Productos
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
                 if (rowsAffected > 0)
                 {
-                    _ = Task.Run(async () => {
-                        try
-                        {
-                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
-                            await collection.UpdateOneAsync(
-                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
-                                Builders<BsonDocument>.Update.Inc("stock", cantidadDelta)
-                            );
-                        }
-                        catch {}
-                    });
                     return true;
                 }
             }
@@ -444,17 +407,6 @@ namespace TechStore360.Modules.Productos
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
                 if (rowsAffected > 0)
                 {
-                    _ = Task.Run(async () => {
-                        try
-                        {
-                            var collection = _dbExecutor.GetMongoDatabase().GetCollection<BsonDocument>("productos");
-                            await collection.UpdateOneAsync(
-                                Builders<BsonDocument>.Filter.Eq("_id", idProducto),
-                                Builders<BsonDocument>.Update.Set("estado", true)
-                            );
-                        }
-                        catch {}
-                    });
                     return true;
                 }
             }

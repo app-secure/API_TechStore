@@ -253,85 +253,7 @@ namespace TechStore360.Modules.Compras
             );
         }
 
-        private async Task SaveToMongoAsync(int numeroFactura, MaestroCompraModel maestro, List<DetalleCompraModel> detalles, CancellationToken cancellationToken = default)
-        {
-            var db = _dbExecutor.GetMongoDatabase();
-            var maestroCollName = GetMaestroCollectionName();
 
-            if (maestroCollName == "compras")
-            {
-                var collection = db.GetCollection<BsonDocument>("compras");
-                var doc = CompraToBson(numeroFactura, maestro, detalles);
-                var filter = Builders<BsonDocument>.Filter.Eq("_id", numeroFactura);
-                await collection.ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
-            }
-            else
-            {
-                var maestroCollection = db.GetCollection<BsonDocument>(maestroCollName);
-                var maestroDoc = new BsonDocument
-                {
-                    { "_id", new BsonDocument("numero_factura", numeroFactura) },
-                    { "numero_factura", numeroFactura },
-                    { "fecha_compra", maestro.CreatedAt.ToString("o") },
-                    { "id_usuario", maestro.IdUsuario },
-                    { "total_compra", (double)maestro.TotalCompra },
-                    { "estado", maestro.Estado },
-                    { "created_at", maestro.CreatedAt.ToString("o") },
-                    { "updated_at", DateTime.UtcNow.ToString("o") },
-                    { "metodo_pago", maestro.MetodoPago },
-                    { "lugar_entrega", maestro.LugarEntrega },
-                    { "requiere_factura", maestro.RequiereFactura },
-                    { "cedula_factura", maestro.CedulaFactura ?? "" },
-                    { "nombre_factura", maestro.NombreFactura ?? "" },
-                    { "__deleted", "false" }
-                };
-
-                var maestroFilter = Builders<BsonDocument>.Filter.Or(
-                    Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
-                    Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
-                    Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
-                );
-                await maestroCollection.ReplaceOneAsync(maestroFilter, maestroDoc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
-
-                var detalleCollName = GetDetalleCollectionName();
-                var detailCollection = db.GetCollection<BsonDocument>(detalleCollName);
-
-                foreach (var d in detalles)
-                {
-                    var numDetalle = d.NumeroDetalle > 0 ? d.NumeroDetalle : Random.Shared.Next(100000, 999999);
-                    var detailDoc = new BsonDocument
-                    {
-                        { "_id", new BsonDocument("numero_detalle", numDetalle) },
-                        { "numero_detalle", numDetalle },
-                        { "numero_factura", numeroFactura },
-                        { "id_producto", d.IdProducto },
-                        { "cantidad", d.Cantidad },
-                        { "precio_unitario", (double)d.PrecioUnitario },
-                        { "created_at", maestro.CreatedAt.ToString("o") },
-                        { "updated_at", DateTime.UtcNow.ToString("o") },
-                        { "__deleted", "false" }
-                    };
-
-                    var detailFilter = Builders<BsonDocument>.Filter.Or(
-                        Builders<BsonDocument>.Filter.Eq("_id", numDetalle),
-                        Builders<BsonDocument>.Filter.Eq("numero_detalle", numDetalle),
-                        Builders<BsonDocument>.Filter.Eq("_id.numero_detalle", numDetalle)
-                    );
-                    await detailCollection.ReplaceOneAsync(detailFilter, detailDoc, new ReplaceOptions { IsUpsert = true }, cancellationToken);
-                }
-            }
-        }
-
-        private async Task SyncToMongoBackgroundAsync(int numeroFactura, MaestroCompraModel maestro, List<DetalleCompraModel> detalles)
-        {
-            try
-            {
-                await SaveToMongoAsync(numeroFactura, maestro, detalles, CancellationToken.None);
-            }
-            catch
-            {
-            }
-        }
 
         public async Task<CompraCreada> AddAsync(MaestroCompraModel maestro, List<DetalleCompraModel> detalles, CancellationToken cancellationToken = default)
         {
@@ -405,7 +327,6 @@ namespace TechStore360.Modules.Compras
                     }
 
                     await transaction.CommitAsync(cancellationToken);
-                    _ = Task.Run(() => SyncToMongoBackgroundAsync(numeroFactura, maestro, detalles));
                     return new CompraCreada(numeroFactura, maestro.TotalCompra);
                 }
                 catch
@@ -413,12 +334,6 @@ namespace TechStore360.Modules.Compras
                     await transaction.RollbackAsync(cancellationToken);
                     throw;
                 }
-            }
-            else if (source == ActiveDbSource.MongoDB)
-            {
-                var numFactura = Random.Shared.Next(100000, 999999);
-                await SaveToMongoAsync(numFactura, maestro, detalles, cancellationToken);
-                return new CompraCreada(numFactura, maestro.TotalCompra);
             }
             throw new InvalidOperationException("Escritura no disponible.");
         }
@@ -438,45 +353,8 @@ namespace TechStore360.Modules.Compras
                 var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
                 if (rowsAffected > 0)
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var db = _dbExecutor.GetMongoDatabase();
-                            var maestroCollName = GetMaestroCollectionName();
-                            var collection = db.GetCollection<BsonDocument>(maestroCollName);
-                            var filter = Builders<BsonDocument>.Filter.Or(
-                                Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
-                                Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
-                                Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
-                            );
-                            await collection.UpdateOneAsync(
-                                filter,
-                                Builders<BsonDocument>.Update.Set("estado", nuevoEstado)
-                            );
-                        }
-                        catch {}
-                    });
                     return true;
                 }
-            }
-            else if (source == ActiveDbSource.MongoDB)
-            {
-                var db = _dbExecutor.GetMongoDatabase();
-                var maestroCollName = GetMaestroCollectionName();
-                var collection = db.GetCollection<BsonDocument>(maestroCollName);
-                var filter = Builders<BsonDocument>.Filter.Or(
-                    Builders<BsonDocument>.Filter.Eq("_id", numeroFactura),
-                    Builders<BsonDocument>.Filter.Eq("numero_factura", numeroFactura),
-                    Builders<BsonDocument>.Filter.Eq("_id.numero_factura", numeroFactura)
-                );
-                var result = await collection.UpdateOneAsync(
-                    filter,
-                    Builders<BsonDocument>.Update.Set("estado", nuevoEstado),
-                    null,
-                    cancellationToken
-                );
-                return result.ModifiedCount > 0;
             }
             return false;
         }
