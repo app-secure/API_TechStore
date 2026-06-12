@@ -426,7 +426,7 @@ namespace TechStore360.Modules.Pagos
 
             int numFacturaId = 0;
             CompraCreada? compraNueva = null;
-            DetalleCompraResponse? compraExistente = null;
+            CompraCompletaDto? compraExistente = null;
 
             if (esNuevoPedido)
             {
