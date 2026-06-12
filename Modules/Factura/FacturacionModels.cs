@@ -86,7 +86,7 @@ namespace TechStore360.Modulos.Factura
                 );
             }
 
-            decimal iva = subtotalGlobal * 0.12m;
+            decimal iva = subtotalGlobal * 0.15m;
             decimal total = subtotalGlobal + iva;
 
             string numeroFactura = $"001-001-{_compra.NumeroFactura:D9}";

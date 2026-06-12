@@ -72,7 +72,7 @@ namespace TechStore360.Modules.Compras
                 RequiereFactura = true,
                 CedulaFactura = request.CedulaFactura ?? "",
                 NombreFactura = request.NombreFactura ?? "",
-                TotalCompra = totalCompra
+                TotalCompra = totalCompra * 1.15m
             };
 
             var resultado = await _repository.AddAsync(maestro, detallesModel, ct);
