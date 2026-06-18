@@ -46,6 +46,7 @@ builder.Services.AddDatabase(builder.Configuration);
 var redisConnStr = builder.Configuration["Redis:ConnectionString"] 
     ?? Environment.GetEnvironmentVariable("Redis__ConnectionString") 
     ?? "localhost:6379";
+redisConnStr = ParseRedisUrl(redisConnStr);
 builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp => 
     StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnStr));
 builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
@@ -241,4 +242,63 @@ static string ParsePostgresUrl(string? url)
     {
         return url ?? "";
     }
+}
+
+static string ParseRedisUrl(string? url)
+{
+    if (string.IsNullOrWhiteSpace(url)) return "localhost:6379";
+    
+    var connectionString = url;
+    var isSsl = false;
+
+    if (connectionString.StartsWith("redis://", StringComparison.OrdinalIgnoreCase))
+    {
+        connectionString = connectionString.Substring(8);
+    }
+    else if (connectionString.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
+    {
+        connectionString = connectionString.Substring(9);
+        isSsl = true;
+    }
+    else
+    {
+        return connectionString;
+    }
+
+    try
+    {
+        if (connectionString.Contains("@"))
+        {
+            var parts = connectionString.Split('@');
+            var credentials = parts[0];
+            var hostPort = parts[1];
+            
+            connectionString = hostPort;
+            if (credentials.Contains(":"))
+            {
+                var password = credentials.Split(':')[1];
+                if (!string.IsNullOrEmpty(password))
+                {
+                    connectionString += $",password={password}";
+                }
+            }
+            else if (!string.IsNullOrEmpty(credentials))
+            {
+                connectionString += $",password={credentials}";
+            }
+        }
+    }
+    catch
+    {
+        // Keep as is if parsing fails
+    }
+
+    if (isSsl && !connectionString.Contains("ssl="))
+    {
+        connectionString = connectionString.Contains("?") 
+            ? $"{connectionString}&ssl=true" 
+            : $"{connectionString},ssl=true";
+    }
+
+    return connectionString;
 }
