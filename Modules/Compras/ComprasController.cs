@@ -6,6 +6,8 @@ using TechStore360.Modules.Usuarios;
 using WkHtmlToPdfDotNet;
 using WkHtmlToPdfDotNet.Contracts;
 using QRCoder;
+using TechStore360.Core.Events;
+using TechStore360.Core.Messaging;
 
 namespace TechStore360.Modules.Compras
 {
@@ -16,19 +18,19 @@ namespace TechStore360.Modules.Compras
         private readonly IComprasService _service;
         private readonly IAuthorizationService _authorizationService;
         private readonly IUsuariosService _usuariosService;
-        private readonly TechStore360.Modulos.Factura.IFacturacionService _facturacionService;
+        private readonly IKafkaProducer _kafkaProducer;
 
         public ComprasController(
                         IComprasService service,
                         IAuthorizationService authorizationService,
                         IUsuariosService usuariosService,
-                        NotificationSmsService smsService, // mantenido en DI para compatibilidad, no se usa
-                        TechStore360.Modulos.Factura.IFacturacionService facturacionService)
+                        NotificationSmsService smsService, 
+                        IKafkaProducer kafkaProducer)
         {
             _service = service;
             _authorizationService = authorizationService;
             _usuariosService = usuariosService;
-            _facturacionService = facturacionService;
+            _kafkaProducer = kafkaProducer;
         }
 
         [HttpPost]
@@ -42,16 +44,16 @@ namespace TechStore360.Modules.Compras
             {
                 var compra = await _service.RegistrarCompraAsync(request, ct);
 
-                // Si el método de pago es inmediato (no es PayPhone ni PayPal), enviar factura por email
                 if (request.MetodoPago != "PayPhone" && request.MetodoPago != "PayPal")
                 {
                     try
                     {
-                        await _facturacionService.EnviarFacturaPorEmailAsync(compra.NumeroFactura, ct);
+                        var pagoEvent = new PagoConfirmadoEvent(compra.NumeroFactura, DateTime.UtcNow);
+                        await _kafkaProducer.PublishAsync("facturas-pendientes", compra.NumeroFactura.ToString(), pagoEvent, ct);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error al enviar factura por correo: {ex.Message}");
+                        Console.WriteLine($"Error al publicar evento de confirmación de pago en Kafka: {ex.Message}");
                     }
                 }
 
@@ -180,11 +182,12 @@ namespace TechStore360.Modules.Compras
                     {
                         try
                         {
-                            await _facturacionService.EnviarFacturaPorEmailAsync(numeroFactura, ct);
+                            var pagoEvent = new PagoConfirmadoEvent(numeroFactura, DateTime.UtcNow);
+                            await _kafkaProducer.PublishAsync("facturas-pendientes", numeroFactura.ToString(), pagoEvent, ct);
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Error al enviar factura tras webhook PayPhone: {ex.Message}");
+                            Console.WriteLine($"Error al publicar evento webhook PayPhone en Kafka: {ex.Message}");
                         }
                     }
                 }

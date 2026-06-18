@@ -5,11 +5,14 @@ using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 using SoapCore;
 using TechStore360.Core;
+using TechStore360.Core.Caching;
+using TechStore360.Core.Messaging;
 using TechStore360.Data;
 using TechStore360.ExternalServices;
 using TechStore360.Modules.Compras;
 using TechStore360.Modules.Productos;
 using TechStore360.Modules.Usuarios;
+using TechStore360.Modules.Pagos;
 using TechStore360.Modulos.Factura;
 using WkHtmlToPdfDotNet;
 using WkHtmlToPdfDotNet.Contracts;
@@ -41,13 +44,31 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddDatabase(builder.Configuration);
 
+var redisConnStr = builder.Configuration["Redis:ConnectionString"] 
+    ?? Environment.GetEnvironmentVariable("Redis__ConnectionString") 
+    ?? "localhost:6379";
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp => 
+    StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnStr));
+builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
+
+builder.Services.AddSingleton<IKafkaProducer, KafkaProducer>();
+builder.Services.AddHostedService<KafkaConsumerBackgroundService>();
+
 builder.Services.AddScoped<IProductosRepository, ProductosRepository>();
 builder.Services.AddScoped<IComprasRepository, ComprasRepository>();
 builder.Services.AddScoped<IUsuariosRepository, UsuariosRepository>();
 
-builder.Services.AddScoped<IProductosService, ProductosService>();
+builder.Services.AddScoped<ProductosService>();
+builder.Services.AddScoped<IProductosService>(provider => 
+    new CachedProductosService(
+        provider.GetRequiredService<ProductosService>(),
+        provider.GetRequiredService<IRedisCacheService>()
+    )
+);
+
 builder.Services.AddScoped<IComprasService, ComprasService>();
 builder.Services.AddScoped<IUsuariosService, UsuariosService>();
+builder.Services.AddScoped<IPagosService, PagosService>();
 
 builder.Services.AddScoped<IAuthenticationProvider, FirebaseAuthProvider>();
 
