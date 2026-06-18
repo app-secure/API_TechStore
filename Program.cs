@@ -1,4 +1,5 @@
 using DotNetEnv;
+using Npgsql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
@@ -212,6 +213,42 @@ app.MapGet("/api/test-db", async (ResilientDbExecutor dbExecutor, string? target
     catch (Exception ex)
     {
         return Results.Ok(new { status = "OFFLINE", error = ex.Message });
+    }
+});
+
+app.MapGet("/api/test-db-pedidos", async (ResilientDbExecutor dbExecutor) =>
+{
+    try
+    {
+        using var conn = await dbExecutor.GetPostgresConnectionAsync();
+        var activeSource = await dbExecutor.GetActiveDatabaseAsync();
+        
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pedidos_temporales');", 
+            conn);
+        var tableExists = (bool)(await cmd.ExecuteScalarAsync() ?? false);
+        
+        if (!tableExists)
+        {
+            return Results.Ok(new { 
+                status = "ERROR", 
+                activeDatabase = activeSource.ToString(), 
+                message = "La tabla 'pedidos_temporales' NO existe en el esquema 'public'. Debe crearla." 
+            });
+        }
+        
+        using var cmdCount = new NpgsqlCommand("SELECT COUNT(*) FROM public.pedidos_temporales;", conn);
+        var count = await cmdCount.ExecuteScalarAsync();
+        
+        return Results.Ok(new { 
+            status = "OK", 
+            activeDatabase = activeSource.ToString(), 
+            message = $"La tabla 'pedidos_temporales' existe. Fila(s) encontrada(s): {count}." 
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { status = "ERROR", error = ex.Message });
     }
 });
 
