@@ -41,6 +41,7 @@ namespace TechStore360.Core.Messaging
             {
                 config.SaslUsername = saslUsername;
                 config.SaslPassword = saslPassword;
+                config.EnableSslCertificateVerification = false;
 
                 if (Enum.TryParse<SecurityProtocol>(securityProtocolStr, true, out var securityProtocol))
                 {
