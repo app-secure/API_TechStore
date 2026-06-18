@@ -32,6 +32,35 @@ namespace TechStore360.Core.Messaging
                 RetryBackoffMs = 500
             };
 
+            var saslUsername = Environment.GetEnvironmentVariable("KAFKA_SASL_USERNAME") ?? configuration["Kafka:SaslUsername"];
+            var saslPassword = Environment.GetEnvironmentVariable("KAFKA_SASL_PASSWORD") ?? configuration["Kafka:SaslPassword"];
+            var securityProtocolStr = Environment.GetEnvironmentVariable("KAFKA_SECURITY_PROTOCOL") ?? configuration["Kafka:SecurityProtocol"];
+            var saslMechanismStr = Environment.GetEnvironmentVariable("KAFKA_SASL_MECHANISM") ?? configuration["Kafka:SaslMechanism"];
+
+            if (!string.IsNullOrWhiteSpace(saslUsername))
+            {
+                config.SaslUsername = saslUsername;
+                config.SaslPassword = saslPassword;
+
+                if (Enum.TryParse<SecurityProtocol>(securityProtocolStr, true, out var securityProtocol))
+                {
+                    config.SecurityProtocol = securityProtocol;
+                }
+                else
+                {
+                    config.SecurityProtocol = SecurityProtocol.SaslSsl;
+                }
+
+                if (Enum.TryParse<SaslMechanism>(saslMechanismStr, true, out var saslMechanism))
+                {
+                    config.SaslMechanism = saslMechanism;
+                }
+                else
+                {
+                    config.SaslMechanism = SaslMechanism.ScramSha256;
+                }
+            }
+
             _producer = new ProducerBuilder<string, string>(config).Build();
         }
 

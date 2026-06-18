@@ -14,6 +14,7 @@ namespace TechStore360.Core.Messaging
     public class KafkaConsumerBackgroundService : BackgroundService
     {
         private readonly IServiceProvider _serviceProvider;
+        private readonly IConfiguration _configuration;
         private readonly string _bootstrapServers;
         private const string TopicName = "facturas-pendientes";
         private const string GroupId = "techstore-billing-group";
@@ -21,6 +22,7 @@ namespace TechStore360.Core.Messaging
         public KafkaConsumerBackgroundService(IServiceProvider serviceProvider, IConfiguration configuration)
         {
             _serviceProvider = serviceProvider;
+            _configuration = configuration;
             
             var servers = configuration["Kafka:BootstrapServers"];
             if (string.IsNullOrWhiteSpace(servers))
@@ -43,6 +45,35 @@ namespace TechStore360.Core.Messaging
                 SessionTimeoutMs = 6000,
                 MaxPollIntervalMs = 300000
             };
+
+            var saslUsername = Environment.GetEnvironmentVariable("KAFKA_SASL_USERNAME") ?? _configuration["Kafka:SaslUsername"];
+            var saslPassword = Environment.GetEnvironmentVariable("KAFKA_SASL_PASSWORD") ?? _configuration["Kafka:SaslPassword"];
+            var securityProtocolStr = Environment.GetEnvironmentVariable("KAFKA_SECURITY_PROTOCOL") ?? _configuration["Kafka:SecurityProtocol"];
+            var saslMechanismStr = Environment.GetEnvironmentVariable("KAFKA_SASL_MECHANISM") ?? _configuration["Kafka:SaslMechanism"];
+
+            if (!string.IsNullOrWhiteSpace(saslUsername))
+            {
+                config.SaslUsername = saslUsername;
+                config.SaslPassword = saslPassword;
+
+                if (Enum.TryParse<SecurityProtocol>(securityProtocolStr, true, out var securityProtocol))
+                {
+                    config.SecurityProtocol = securityProtocol;
+                }
+                else
+                {
+                    config.SecurityProtocol = SecurityProtocol.SaslSsl;
+                }
+
+                if (Enum.TryParse<SaslMechanism>(saslMechanismStr, true, out var saslMechanism))
+                {
+                    config.SaslMechanism = saslMechanism;
+                }
+                else
+                {
+                    config.SaslMechanism = SaslMechanism.ScramSha256;
+                }
+            }
 
             using var consumer = new ConsumerBuilder<string, string>(config).Build();
             consumer.Subscribe(TopicName);

@@ -24,7 +24,6 @@ namespace TechStore360.Modules.Compras
                         IComprasService service,
                         IAuthorizationService authorizationService,
                         IUsuariosService usuariosService,
-                        NotificationSmsService smsService, 
                         IKafkaProducer kafkaProducer)
         {
             _service = service;
